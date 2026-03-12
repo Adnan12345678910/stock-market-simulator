@@ -1,8 +1,8 @@
 streamlit
 pandas
 streamlit-autorefresh
-streamlit as st
-pandas as pd
+streamlit
+pandas
 random
 time
 pickle

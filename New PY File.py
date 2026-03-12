@@ -255,6 +255,8 @@ def session_active():
 if page=="Home":
 
     st.title("Classroom Market Simulator")
+    
+    st.markdown("### 🏢 Adnan Software Technologies  \n**Designed by Adnan Software Technologies**")
 
     st.write("Teachers: **Adnan Sir & Udayan Sir**")
 
@@ -429,5 +431,6 @@ if page=="Portfolios":
         df["Quantity"]=df["Quantity"].round(6)
 
         st.table(df)
+
 
 

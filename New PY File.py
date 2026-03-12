@@ -1,12 +1,3 @@
-import streamlit as st
-import pandas as pd
-import random
-import time
-import pickle
-import os
-import requests
-from streamlit_autorefresh import st_autorefresh
-
 st.set_page_config(layout="wide", page_title="Classroom Market Simulator")
 
 # ---------------- SESSION VARIABLES ----------------
@@ -429,3 +420,4 @@ if page=="Portfolios":
         df["Quantity"]=df["Quantity"].round(6)
 
         st.table(df)
+

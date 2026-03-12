@@ -1,3 +1,9 @@
 streamlit
 pandas
 streamlit-autorefresh
+streamlit as st
+pandas as pd
+random
+time
+pickle
+requests

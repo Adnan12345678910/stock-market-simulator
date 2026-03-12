@@ -1,234 +1,431 @@
-
-# pip install streamlit pandas numpy
 import streamlit as st
 import pandas as pd
 import random
+import time
+import pickle
+import os
+import requests
 from streamlit_autorefresh import st_autorefresh
 
-st.set_page_config(page_title="Classroom Stock Market", layout="wide")
+st.set_page_config(layout="wide", page_title="Classroom Market Simulator")
 
-st.title("📈 Classroom Stock Market Simulation")
+# ---------------- SESSION VARIABLES ----------------
+if "session_started" not in st.session_state:
+    st.session_state.session_started=False
 
-# Auto refresh every 3 seconds
-st_autorefresh(interval=3000, key="marketrefresh")
+if "start_time" not in st.session_state:
+    st.session_state.start_time=None
 
-students = ["Ali","Sara","John","Ravi","Fatima","Arjun"]
+if "session_ended" not in st.session_state:
+    st.session_state.session_ended=False
 
-companies = {
-    "Apple":150,
-    "Google":120,
-    "Amazon":100,
+STATE_FILE="market_state.pkl"
+SESSION_DURATION=21*60
+INITIAL_CASH=314000
+
+groups=["Group 1","Group 2","Group 3","Group 4","Group 5","Group 6"]
+ai_traders=["ChatGPT","Gemini"]
+
+assets=[
+"Tesla","Apple","Nvidia",
+"Gold","Silver","Crude Oil",
+"Bitcoin","Ethereum"
+]
+
+TRANSACTION_FEE=0.005
+
+
+# ---------------- SAVE STATE ----------------
+def save_state():
+
+    data=dict(st.session_state)
+
+    if "refresh" in data:
+        del data["refresh"]
+
+    with open(STATE_FILE,"wb") as f:
+        pickle.dump(data,f)
+
+
+# ---------------- LOAD STATE ----------------
+def load_state():
+
+    if os.path.exists(STATE_FILE):
+
+        with open(STATE_FILE,"rb") as f:
+
+            data=pickle.load(f)
+
+            for k,v in data.items():
+
+                if k!="refresh":
+                    st.session_state[k]=v
+
+
+if "initialized" not in st.session_state:
+
+    load_state()
+    st.session_state.initialized=True
+
+
+# ---------------- CRYPTO PRICE ----------------
+def get_crypto():
+
+    try:
+
+        url="https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
+
+        data=requests.get(url).json()
+
+        return data["bitcoin"]["usd"],data["ethereum"]["usd"]
+
+    except:
+
+        return 45000,3000
+
+
+# ---------------- RESET GAME ----------------
+def reset_game():
+
+    btc,eth=get_crypto()
+
+    st.session_state.prices={
     "Tesla":200,
-    "Microsoft":180,
+    "Apple":150,
     "Nvidia":220,
-    "Meta":130,
-    "Netflix":140,
-    "Adobe":160,
-    "Intel":90
-}
+    "Gold":2000,
+    "Silver":25,
+    "Crude Oil":80,
+    "Bitcoin":btc,
+    "Ethereum":eth
+    }
 
-# Initialize prices
-if "prices" not in st.session_state:
-    st.session_state.prices = companies.copy()
+    st.session_state.players={}
 
-# Price history for charts
-if "price_history" not in st.session_state:
-    st.session_state.price_history = {c:[p] for c,p in companies.items()}
+    for p in groups+ai_traders:
 
-# Player accounts
-if "players" not in st.session_state:
-
-    st.session_state.players = {}
-
-    for s in students:
-
-        st.session_state.players[s] = {
-            "cash":10000,
-            "portfolio":{c:0 for c in companies}
+        st.session_state.players[p]={
+        "cash":INITIAL_CASH,
+        "portfolio":{a:0.0 for a in assets},
+        "invested":False
         }
 
-# Portfolio value history
-if "portfolio_history" not in st.session_state:
-    st.session_state.portfolio_history = {s:[10000] for s in students}
+
+if "prices" not in st.session_state:
+
+    reset_game()
 
 
-# MARKET UPDATE FUNCTION
+for ai in ai_traders:
+
+    if ai not in st.session_state.players:
+
+        st.session_state.players[ai]={
+        "cash":INITIAL_CASH,
+        "portfolio":{a:0.0 for a in assets},
+        "invested":False
+        }
+
+
+# ---------------- NAVIGATION ----------------
+page=st.sidebar.radio(
+"Navigation",
+["Home","Trading Desk","Live Market","Portfolios"]
+)
+
+
+# ---------------- AUTO REFRESH ----------------
+if page not in ["Trading Desk","Home"]:
+    st_autorefresh(interval=1000,key="refresh")
+
+
+# ---------------- TIMER ----------------
+def remaining_time():
+
+    if not st.session_state.session_started:
+        return None
+
+    elapsed=time.time()-st.session_state.start_time
+
+    return max(0,SESSION_DURATION-int(elapsed))
+
+
+remain=remaining_time()
+
+if remain is None:
+
+    timer_text="SESSION NOT STARTED"
+
+else:
+
+    mins=remain//60
+    secs=remain%60
+
+    timer_text=f"{mins}m {secs}s"
+
+
+st.markdown(f"""
+<div style="
+position:fixed;
+top:20px;
+right:30px;
+background:#111;
+color:#FFD700;
+padding:15px 25px;
+font-size:22px;
+font-weight:bold;
+border-radius:12px;
+border:3px solid #FFD700;
+z-index:999999;">
+⏱ TIME LEFT: {timer_text}
+</div>
+""",unsafe_allow_html=True)
+
+
+# ---------------- MARKET ENGINE ----------------
 def update_market():
 
-    for c in st.session_state.prices:
+    for a in st.session_state.prices:
 
-        change = random.uniform(-3,3)
+        p=st.session_state.prices[a]
 
-        st.session_state.prices[c] += change
-        st.session_state.prices[c] = round(st.session_state.prices[c],2)
+        if a in ["Tesla","Apple","Nvidia"]:
+            change=random.gauss(0,2)
 
-        st.session_state.price_history[c].append(st.session_state.prices[c])
+        elif a=="Gold":
+            change=random.gauss(0,0.6)
 
+        elif a=="Silver":
+            change=random.gauss(0,3)
 
-    for s in students:
+        elif a=="Crude Oil":
 
-        p = st.session_state.players[s]
+            if random.random()<0.1:
+                change=random.uniform(-15,20)
+            else:
+                change=random.uniform(-2,2)
 
-        val = 0
+        elif a in ["Bitcoin","Ethereum"]:
+            change=random.gauss(0,150)
 
-        for c in p["portfolio"]:
-            val += p["portfolio"][c] * st.session_state.prices[c]
-
-        total = val + p["cash"]
-
-        st.session_state.portfolio_history[s].append(total)
-
-
-update_market()
-
-
-# MARKET TABLE
-st.subheader("🏢 Market Prices")
-
-price_df = pd.DataFrame(
-    st.session_state.prices.items(),
-    columns=["Company","Price"]
-)
-
-st.dataframe(price_df, use_container_width=True)
+        st.session_state.prices[a]=round(max(1,p+change),2)
 
 
-# STOCK CHART
-st.subheader("📈 Stock Price Charts")
+# ---------------- AI TRADERS ----------------
+def ai_trade():
 
-for company in companies:
+    for ai in ai_traders:
 
-    chart_data = pd.DataFrame(
-        st.session_state.price_history[company],
-        columns=[company]
+        player=st.session_state.players[ai]
+
+        asset=random.choice(assets)
+
+        price=st.session_state.prices[asset]
+
+        amount=random.randint(5000,20000)
+
+        qty=amount/price
+
+        if player["cash"]>amount:
+
+            player["cash"]-=amount
+            player["portfolio"][asset]+=qty
+            player["invested"]=True
+
+
+# ---------------- SESSION ACTIVE ----------------
+def session_active():
+
+    if not st.session_state.session_started:
+        return False
+
+    elapsed=time.time()-st.session_state.start_time
+
+    if elapsed>=SESSION_DURATION:
+
+        st.session_state.session_started=False
+        st.session_state.session_ended=True
+
+        return False
+
+    return True
+
+
+# ---------------- HOME ----------------
+if page=="Home":
+
+    st.title("Classroom Market Simulator")
+
+    st.write("Teachers: **Adnan Sir & Udayan Sir**")
+
+    c1,c2=st.columns(2)
+
+    if c1.button("Start Session"):
+
+        reset_game()
+
+        st.session_state.session_started=True
+        st.session_state.session_ended=False
+        st.session_state.start_time=time.time()
+
+        save_state()
+
+    if c2.button("Stop Session"):
+
+        reset_game()
+
+        st.session_state.session_started=False
+        st.session_state.session_ended=True
+        st.session_state.start_time=None
+
+        save_state()
+
+
+# ---------------- TRADING DESK ----------------
+if page=="Trading Desk":
+
+    st.title("Trading Desk")
+
+    trader=st.selectbox("Trader",groups)
+
+    player=st.session_state.players[trader]
+
+    st.write("Cash:",round(player["cash"],2))
+
+    asset=st.selectbox("Asset",assets)
+
+    price=st.session_state.prices[asset]
+
+    st.write("Price:",price)
+
+    action=st.radio("Action",["Buy","Sell"])
+
+    if asset in ["Bitcoin","Ethereum"]:
+
+        amount=st.number_input("Investment Amount ($)",min_value=1000)
+
+        qty=amount/price
+
+        st.write("Crypto Quantity:",round(qty,6))
+
+    else:
+
+        qty=st.number_input("Quantity",min_value=1)
+
+        amount=qty*price
+
+
+    if st.button("Execute Trade"):
+
+        fee=amount*TRANSACTION_FEE
+
+        if action=="Buy":
+
+            if player["cash"]>=amount+fee:
+
+                player["cash"]-=amount+fee
+                player["portfolio"][asset]+=qty
+                player["invested"]=True
+
+                st.success("Trade Executed Successfully")
+
+            else:
+                st.error("Not enough cash")
+
+        else:
+
+            if player["portfolio"][asset]>=qty:
+
+                player["portfolio"][asset]-=qty
+                player["cash"]+=amount-fee
+
+                st.success("Trade Executed Successfully")
+
+        save_state()
+
+
+# ---------------- LIVE MARKET ----------------
+if page=="Live Market":
+
+    if session_active():
+
+        update_market()
+        ai_trade()
+
+    df=pd.DataFrame(
+        st.session_state.prices.items(),
+        columns=["Asset","Price"]
     )
 
-    st.line_chart(chart_data)
+    st.title("Live Market Prices")
+
+    st.dataframe(df,width="stretch")
 
 
-# TRADING PANEL
-st.subheader("💼 Trading")
+# ---------------- PORTFOLIOS ----------------
+if page=="Portfolios":
 
-student = st.selectbox("Select Student", students)
+    if session_active():
 
-player = st.session_state.players[student]
+        update_market()
+        ai_trade()
 
-st.write("💰 Cash Balance:", round(player["cash"],2))
+    leaderboard=[]
 
+    for p in groups+ai_traders:
 
-company = st.selectbox("Company", list(companies.keys()))
+        player=st.session_state.players[p]
 
-action = st.radio("Action", ["Buy","Sell"])
+        value=0
 
-qty = st.number_input("Quantity", min_value=1)
+        for a in assets:
+            value+=player["portfolio"][a]*st.session_state.prices[a]
 
-price = st.session_state.prices[company]
+        total=value+player["cash"]
 
+        profit=total-INITIAL_CASH
 
-if st.button("Execute Trade"):
-
-    if action=="Buy":
-
-        cost = price * qty
-
-        if player["cash"] >= cost:
-
-            player["cash"] -= cost
-            player["portfolio"][company] += qty
-
-            st.success("Trade Successful")
-
-        else:
-
-            st.error("Not enough cash")
+        if player["invested"]:
+            leaderboard.append([p,total,profit])
 
 
-    if action=="Sell":
+    board=pd.DataFrame(
+        leaderboard,
+        columns=["Trader","Portfolio Value","Profit/Loss"]
+    )
 
-        if player["portfolio"][company] >= qty:
+    board=board.sort_values(
+        "Portfolio Value",
+        ascending=False
+    )
 
-            player["portfolio"][company] -= qty
-            player["cash"] += price * qty
+    st.title("Live Leaderboard")
 
-            st.success("Trade Successful")
-
-        else:
-
-            st.error("Not enough shares")
-
-
-# PORTFOLIO
-st.subheader("📦 Portfolio")
-
-portfolio_df = pd.DataFrame(
-    player["portfolio"].items(),
-    columns=["Company","Shares"]
-)
-
-st.table(portfolio_df)
+    st.dataframe(board,width="stretch")
 
 
-# PORTFOLIO VALUE
-value = 0
+    if st.session_state.session_ended and len(board)>0:
 
-for c in player["portfolio"]:
-    value += player["portfolio"][c] * st.session_state.prices[c]
+        winner=board.iloc[0]
 
-total = value + player["cash"]
-
-profit = total - 10000
-
-
-st.subheader("💰 Portfolio Summary")
-
-st.write("Portfolio Value:", round(value,2))
-st.write("Total Money:", round(total,2))
-
-
-if profit > 0:
-    st.success(f"Profit: ₹{round(profit,2)}")
-else:
-    st.error(f"Loss: ₹{round(profit,2)}")
-
-
-# PORTFOLIO GROWTH GRAPHS
-st.subheader("📊 Portfolio Growth (Live Stock Graphs You Own)")
-
-for c in player["portfolio"]:
-
-    if player["portfolio"][c] > 0:
-
-        st.write(f"{c} Shares Owned: {player['portfolio'][c]}")
-
-        chart_data = pd.DataFrame(
-            st.session_state.price_history[c],
-            columns=[c]
+        st.success(
+        f"SESSION ENDED 🏆 Winner: {winner['Trader']} | Portfolio Value: ${round(winner['Portfolio Value'],2)}"
         )
 
-        st.line_chart(chart_data)
 
+    st.subheader("All Portfolios")
 
-# LEADERBOARD
-st.subheader("🏆 Leaderboard")
+    for p in groups+ai_traders:
 
-data = []
+        player=st.session_state.players[p]
 
-for s in students:
+        st.write("###",p)
 
-    p = st.session_state.players[s]
+        df=pd.DataFrame(
+        player["portfolio"].items(),
+        columns=["Asset","Quantity"]
+        )
 
-    val = 0
+        df["Quantity"]=df["Quantity"].round(6)
 
-    for c in p["portfolio"]:
-        val += p["portfolio"][c] * st.session_state.prices[c]
-
-    total = val + p["cash"]
-
-    data.append([s,total])
-
-
-leaderboard = pd.DataFrame(data, columns=["Student","Total Value"])
-
-leaderboard = leaderboard.sort_values("Total Value", ascending=False)
-
-st.table(leaderboard)
+        st.table(df)
